@@ -1,0 +1,371 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ItemType {
+  PHYSICAL
+  DIGITAL
+}
+
+enum ItemStatus {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+enum ItemFileAccessMode {
+  VIEW
+  DOWNLOAD
+}
+
+enum AvailabilityStatus {
+  OPEN
+  RESERVED
+}
+
+enum VerificationLevel {
+  UNVERIFIED
+  EMAIL
+  PHONE
+}
+
+model User {
+  id                  String            @id @default(uuid())
+  name                String
+  email               String            @unique
+  phone               String?           @unique
+  passwordHash        String
+  trustScore          Float             @default(0)
+  verificationLevel   VerificationLevel @default(UNVERIFIED)
+  isAdmin             Boolean           @default(false)
+  isSuspended         Boolean           @default(false)
+  optedOutCategoryIds String[]          @default([])
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  items        Item[]
+  feedMessages FeedMessage[]
+
+  requestsMade     Request[]      @relation("RequesterRequests")
+  directRequestsIn Request[]      @relation("TargetOwnerRequests")
+  offersMade       Offer[]
+  loansAsBorrower  Loan[]         @relation("BorrowerLoans")
+  loansAsOwner     Loan[]         @relation("OwnerLoans")
+  reviewsGiven     Review[]       @relation("RaterReviews")
+  reviewsReceived  Review[]       @relation("RateeReviews")
+  notifications    Notification[]
+  reportsFiled     Report[]       @relation("ReporterReports")
+  reportsResolved  Report[]       @relation("ResolverReports")
+
+  @@map("users")
+}
+
+model Category {
+  id   String @id @default(uuid())
+  name String @unique
+
+  synonyms CategorySynonym[]
+  items    Item[]
+
+  @@map("categories")
+}
+
+model CategorySynonym {
+  id         String   @id @default(uuid())
+  term       String
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([term, categoryId])
+  @@index([term])
+  @@map("category_synonyms")
+}
+
+model Item {
+  id                  String     @id @default(uuid())
+  ownerId             String
+  owner               User       @relation(fields: [ownerId], references: [id])
+  type                ItemType
+  title               String
+  description         String?
+  categoryId          String
+  category            Category   @relation(fields: [categoryId], references: [id])
+  status              ItemStatus @default(AVAILABLE)
+  maxLoanDurationDays Int        @default(7)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  photos         ItemPhoto[]
+  files          ItemFile[]
+  availabilities Availability[]
+  offers         Offer[]
+  loans          Loan[]
+
+  // populated by a generated-column migration; declared so `migrate dev` doesn't try to drop it
+  searchVector Unsupported("tsvector")?
+
+  @@index([categoryId])
+  @@index([ownerId])
+  @@map("items")
+}
+
+model ItemPhoto {
+  id        String   @id @default(uuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  url       String
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
+  @@map("item_photos")
+}
+
+model ItemFile {
+  id                 String             @id @default(uuid())
+  itemId             String
+  item               Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  // Cloudinary identity needed to mint a fresh signed/watermarked URL on every access -
+  // the original upload URL is not itself usable for repeated authenticated access.
+  publicId           String
+  resourceType       String             @default("image")
+  originalFilename   String
+  url                String
+  accessMode         ItemFileAccessMode @default(VIEW)
+  maxDurationMinutes Int?
+  flaggedForReview   Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+
+  @@index([itemId])
+  @@map("item_files")
+}
+
+model Availability {
+  id        String             @id @default(uuid())
+  itemId    String
+  item      Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  startAt   DateTime
+  endAt     DateTime
+  status    AvailabilityStatus @default(OPEN)
+  createdAt DateTime           @default(now())
+
+  @@index([itemId, startAt, endAt])
+  @@map("availabilities")
+}
+
+enum RequestMode {
+  DIRECT
+  BROADCAST
+}
+
+enum RequestStatus {
+  OPEN
+  FULFILLED
+  CANCELLED
+  EXPIRED
+  NO_MATCH
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+  EXPIRED
+}
+
+enum LoanState {
+  APPROVED
+  ACTIVE
+  RETURN_REQUESTED
+  CLOSED
+  CANCELLED
+}
+
+enum NotificationType {
+  OFFER_RECEIVED
+  OFFER_ACCEPTED
+  OFFER_DECLINED
+  LOAN_PICKUP_CONFIRMED
+  LOAN_ACTIVATED
+  LOAN_RETURN_REQUESTED
+  LOAN_CLOSED
+  LOAN_CANCELLED
+  LOAN_DUE_SOON
+  LOAN_OVERDUE
+  REQUEST_NO_MATCH
+  BROADCAST_OFFER_ACCEPTED
+  REQUEST_CANCELLED
+}
+
+model Request {
+  id              String        @id @default(uuid())
+  requesterId     String
+  requester       User          @relation("RequesterRequests", fields: [requesterId], references: [id])
+  mode            RequestMode
+  rawText         String?
+  requirementText String?
+  targetOwnerId   String?
+  targetOwner     User?         @relation("TargetOwnerRequests", fields: [targetOwnerId], references: [id])
+  status          RequestStatus @default(OPEN)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  offers      Offer[]
+  feedMessage FeedMessage?
+
+  @@index([requesterId])
+  @@map("requests")
+}
+
+model Offer {
+  id        String      @id @default(uuid())
+  requestId String
+  request   Request     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  ownerId   String
+  owner     User        @relation(fields: [ownerId], references: [id])
+  itemId    String
+  item      Item        @relation(fields: [itemId], references: [id])
+  status    OfferStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  loan Loan?
+
+  @@index([requestId])
+  @@index([ownerId])
+  @@index([itemId])
+  @@map("offers")
+}
+
+model Loan {
+  id         String    @id @default(uuid())
+  offerId    String    @unique
+  offer      Offer     @relation(fields: [offerId], references: [id])
+  itemId     String
+  item       Item      @relation(fields: [itemId], references: [id])
+  borrowerId String
+  borrower   User      @relation("BorrowerLoans", fields: [borrowerId], references: [id])
+  ownerId    String
+  owner      User      @relation("OwnerLoans", fields: [ownerId], references: [id])
+  state      LoanState @default(APPROVED)
+
+  pickupConfirmedByBorrowerAt DateTime?
+  pickupConfirmedByOwnerAt    DateTime?
+  activatedAt                 DateTime?
+  dueAt                       DateTime?
+  returnConfirmedByBorrowerAt DateTime?
+  returnConfirmedByOwnerAt    DateTime?
+  closedAt                    DateTime?
+  dueSoonNotifiedAt           DateTime?
+  overdueNotifiedAt           DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events  LoanEvent[]
+  reviews Review[]
+
+  @@index([itemId])
+  @@index([borrowerId])
+  @@index([ownerId])
+  @@index([state, dueAt])
+  @@map("loans")
+}
+
+model LoanEvent {
+  id        String   @id @default(uuid())
+  loanId    String
+  loan      Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  type      String
+  actorId   String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([loanId])
+  @@map("loan_events")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  loanId    String
+  loan      Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  raterId   String
+  rater     User     @relation("RaterReviews", fields: [raterId], references: [id])
+  rateeId   String
+  ratee     User     @relation("RateeReviews", fields: [rateeId], references: [id])
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@unique([loanId, raterId])
+  @@index([rateeId])
+  @@map("reviews")
+}
+
+enum ReportType {
+  NON_RETURN
+  DAMAGE
+  MISUSE
+  CONTENT_VIOLATION
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+model Report {
+  id           String       @id @default(uuid())
+  reporterId   String
+  reporter     User         @relation("ReporterReports", fields: [reporterId], references: [id])
+  type         ReportType
+  description  String
+  loanId       String?
+  itemId       String?
+  status       ReportStatus @default(OPEN)
+  resolution   String?
+  resolvedById String?
+  resolvedBy   User?        @relation("ResolverReports", fields: [resolvedById], references: [id])
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([status])
+  @@index([reporterId])
+  @@map("reports")
+}
+
+model FeedMessage {
+  id        String   @id @default(uuid())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String
+  isRequest Boolean  @default(false)
+  requestId String?  @unique
+  request   Request? @relation(fields: [requestId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([authorId])
+  @@map("feed_messages")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
