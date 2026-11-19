@@ -5,7 +5,7 @@ import { matchesDisallowedTerms } from './content-policy.js';
 import type { CreateItemDto } from './dto/create-item.dto.js';
 import type { UpdateItemDto } from './dto/update-item.dto.js';
 
-const ITEM_SEARCH_INCLUDE = {
+export const ITEM_SEARCH_INCLUDE = {
   owner: { select: { id: true, name: true, trustScore: true } },
   category: true,
   photos: true,

@@ -2,10 +2,10 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { EventsPublisherService } from '../../events/events-publisher.service.js';
 import { EVENT_PATTERNS } from '../../events/event-types.js';
-import { CatalogService } from '../catalog/catalog.service.js';
+import { CatalogService, ITEM_SEARCH_INCLUDE } from '../catalog/catalog.service.js';
 
 const LOAN_INCLUDE = {
-  item: true,
+  item: { include: ITEM_SEARCH_INCLUDE },
   offer: { include: { request: true } },
 } as const;
 
@@ -33,7 +33,7 @@ export class RequestOfferLoanService {
       });
       return tx.offer.create({
         data: { requestId: request.id, ownerId: item.ownerId, itemId, status: 'PENDING' },
-        include: { request: true, item: true },
+        include: { request: true, item: { include: ITEM_SEARCH_INCLUDE } },
       });
     });
 
@@ -99,7 +99,7 @@ export class RequestOfferLoanService {
   listMyRequests(requesterId: string) {
     return this.prisma.request.findMany({
       where: { requesterId },
-      include: { offers: { include: { item: true, owner: { select: { id: true, name: true, trustScore: true } } } } },
+      include: { offers: { include: { item: { include: ITEM_SEARCH_INCLUDE } } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -107,7 +107,10 @@ export class RequestOfferLoanService {
   listOffersReceived(ownerId: string) {
     return this.prisma.offer.findMany({
       where: { ownerId },
-      include: { item: true, request: { include: { requester: { select: { id: true, name: true, trustScore: true } } } } },
+      include: {
+        item: { include: ITEM_SEARCH_INCLUDE },
+        request: { include: { requester: { select: { id: true, name: true, trustScore: true } } } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

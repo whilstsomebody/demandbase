@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { CatalogService } from '../catalog/catalog.service.js';
+import { CatalogService, ITEM_SEARCH_INCLUDE } from '../catalog/catalog.service.js';
 import { RequestOfferLoanService } from '../request-offer-loan/request-offer-loan.service.js';
 
 // Strict, deliberately uncomplicated grammar: "I need {requirement}, is anyone up for it?"
@@ -63,7 +63,7 @@ export class CommunityFeedService {
       data: { authorId, body, isRequest: true, requestId: request.id },
       include: {
         author: { select: { id: true, name: true } },
-        request: { include: { offers: { include: { item: true } } } },
+        request: { include: { offers: { include: { item: { include: ITEM_SEARCH_INCLUDE } } } } },
       },
     });
   }
@@ -72,7 +72,7 @@ export class CommunityFeedService {
     return this.prisma.feedMessage.findMany({
       include: {
         author: { select: { id: true, name: true } },
-        request: { include: { offers: { include: { item: true } } } },
+        request: { include: { offers: { include: { item: { include: ITEM_SEARCH_INCLUDE } } } } },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
